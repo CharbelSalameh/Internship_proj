@@ -1,0 +1,30 @@
+.table-striped{
+    --bs-table-striped-bg:lightblue;
+}
+#modaldelete{
+    background-color: bisque;
+}
+
+ul#nav{
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  border: 1px solid #e7e7e7;
+  background-color: #f3f3f3;
+}
+
+ul#nav li a {
+  display: block;
+  color: #666666;
+  padding: 14px 16px;
+  text-decoration: none;
+}
+
+ul#nav li a:hover:not(.active) {
+  background-color: #dddddd;
+}
+
+ul#nav li a.active {
+  background-color: lightblue;
+}
