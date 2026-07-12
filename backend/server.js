@@ -1,37 +1,25 @@
 const express = require("express");
 const cors = require("cors");
-const XLSX = require("xlsx");
-const fs = require("fs");
+const{ connectToDb, getDB } = require('./dataBase');
+const { ObjectId } = require('mongodb');
 const path = require("path");
 
+let db; 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-const excelFilePath = path.join(__dirname, "users.xlsx");
 
-function readUsersFromExcel() {
-    if (!fs.existsSync(excelFilePath)) {
-        return [];
-    }
-
-    const workbook = XLSX.readFile(excelFilePath);
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-
-    const users = XLSX.utils.sheet_to_json(sheet);
+async function getUsers() {
+  
+    const users = await db.collection("users")
+      .find()
+      .sort({ firstname: 1 })
+      .toArray();
 
     return users;
-}
-
-function saveUsersToExcel(users) {
-    const worksheet = XLSX.utils.json_to_sheet(users);
-    const workbook = XLSX.utils.book_new();
-
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Users");
-
-    XLSX.writeFile(workbook, excelFilePath);
+  
 }
 
 app.get("/api/health", function(req, res) {
@@ -41,84 +29,77 @@ app.get("/api/health", function(req, res) {
 });
 
 app.get("/api/users", function(req, res) {
-    const users = readUsersFromExcel();
-
-    res.json(users);
+    getUsers()
+        .then(users => {
+            res.status(200).json(users);
+        })
+        .catch(()=>{
+            res.status(500).json({error:"could not fetch the documents"})
+        })
 });
 
-app.post("/api/users", function(req, res) {
-    const firstname = req.body.firstname;
-    const lastname = req.body.lastname;
-    const gender = req.body.gender;
+app.post("/api/users", async function(req, res) {
+  const firstname = req.body.firstname;
+  const lastname = req.body.lastname;
+  const gender = req.body.gender;
 
-    if (!firstname || !lastname || !gender) {
-        return res.status(400).json({
-            message: "firstname, lastname, and gender are required"
-        });
-    }
+  if (!firstname || !lastname || !gender) {
+    return res.status(400).json({
+      message: "firstname, lastname, and gender are required"
+    });
+  }
 
-    const users = readUsersFromExcel();
+  try {
+    const users = await getUsers();
 
     const exists = users.some(function(user) {
-        return user.firstname === firstname &&
-               user.lastname === lastname &&
-               user.gender === gender;
+      return user.firstname === firstname &&
+             user.lastname === lastname &&
+             user.gender === gender;
     });
 
     if (exists) {
-        return res.status(409).json({
-            message: "User already exists"
-        });
-    }
-
-    let newId = 1;
-
-    if (users.length > 0) {
-        const ids = users.map(function(user) {
-            return Number(user.id);
-        });
-
-        newId = Math.max(...ids) + 1;
+      return res.status(409).json({
+        message: "User already exists"
+      });
     }
 
     const newUser = {
-        id: newId,
-        firstname: firstname,
-        lastname: lastname,
-        gender: gender
+      firstname: firstname,
+      lastname: lastname,
+      gender: gender
     };
 
-    users.push(newUser);
+    const result = await db.collection("users").insertOne(newUser);
 
-    saveUsersToExcel(users);
+    res.status(201).json({
+      _id: result.insertedId,
+      firstname: newUser.firstname,
+      lastname: newUser.lastname,
+      gender: newUser.gender
+    });
 
-    res.status(201).json(newUser);
+  } catch (err) {
+    res.status(500).json({
+      error: "could not create a new document"
+    });
+  }
 });
 
 app.delete("/api/users/:id", function(req, res) {
-    const id = Number(req.params.id);
-
-    const users = readUsersFromExcel();
-
-    const filteredUsers = users.filter(function(user) {
-        return Number(user.id) !== id;
-    });
-
-    if (users.length === filteredUsers.length) {
-        return res.status(404).json({
-            message: "User not found"
-        });
-    }
-
-    saveUsersToExcel(filteredUsers);
-
-    res.json({
-        message: "User deleted"
-    });
-});
-
-app.get("/", function(req, res) {
-    res.send("Backend API is running");
+   if (ObjectId.isValid(req.params.id)){
+          db.collection('users')
+          .deleteOne({_id:new ObjectId(req.params.id)})
+          .then(result=>{
+          res.status(200).json(result)
+          }).catch(err=>{
+              res.status(500).json({error:"could not fetch the document"})
+          })
+          req.params.id
+      }else{
+          res.status(500).json({error:"not valid document id"})
+      }
+    
 });
 
 app.get("/api/profile-data", function(req, res) {
@@ -131,6 +112,13 @@ app.get("/api/profile-data", function(req, res) {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, function() {
-    console.log("Server running on port " + PORT);
-});
+connectToDb((err) => {
+  if (!err) {
+    db = getDB();
+
+    app.listen(PORT, function() {
+      console.log("Server running on port " + PORT);
+    });
+  } else {
+    console.log("Could not connect to database");
+  }});

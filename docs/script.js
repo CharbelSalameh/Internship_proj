@@ -22,7 +22,7 @@ genders.forEach(function(item) {
     genderSelect.appendChild(option);
 });
 
-async function loadUsersFromExcel() {
+async function loadUsers() {
     try {
         const response = await fetch(`${API_BASE_URL}/api/users`);
 
@@ -169,7 +169,7 @@ function createRow(details) {
     icon.style.cursor = "pointer";
 
     icon.addEventListener("click", function() {
-        removeRow(row, details.id);
+        removeRow(row, details._id);
     });
 
     deleteCell.appendChild(icon);
@@ -221,7 +221,7 @@ function removeRow(row, userId) {
             }
 
             users = users.filter(function(user) {
-                return user.id !== userId;
+                return user._id !== userId;
             });
 
             row.remove();
@@ -262,4 +262,4 @@ fnameInput.addEventListener("input", checkForm);
 lnameInput.addEventListener("input", checkForm);
 
 createTable();
-loadUsersFromExcel();
+loadUsers();
