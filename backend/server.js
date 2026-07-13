@@ -4,14 +4,23 @@ const{ connectToDb, getDB } = require('./dataBase');
 const { ObjectId } = require('mongodb');
 const path = require("path");
 const multer = require("multer");
+const sharp = require("sharp");
 let db; 
 const app = express();
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024
-  }
+    fileSize: 500000 //500KB
+  },
+  // This make you only able to upload png files 
+  fileFilter: function(req, file, cb) {
+        if (file.mimetype === "image/png") {
+            cb(null, true);
+        } else {
+            cb(new Error("Only PNG files are allowed"), false);
+        }
+    }
 });
 
 app.use(cors());
@@ -86,14 +95,27 @@ app.post("/api/users",upload.single("image"), async function(req, res) {
         });
         }
 
+        let resizedImage = null;
+
+        if (req.file) {
+            resizedImage = await sharp(req.file.buffer)
+                .resize(200, 200, {
+                    fit: "cover"
+                })
+                .png()
+                .toBuffer();
+        }
+
         const newUser = {
         firstname: firstname,
         lastname: lastname,
         gender: gender,
-        image:req.file?{
-            data:req.file.buffer,
-            contentType:req.file.mimetype
-        }:null
+        image: resizedImage
+                ? {
+                    data: resizedImage,
+                    contentType: "image/png"
+                  }
+                : null
         };
 
         const result = await db.collection("users").insertOne(newUser);
@@ -165,10 +187,14 @@ app.get("/api/users/:id", function(req, res) {
             error: "could not fetch the document"
         });
     });
+  }else{
+     return res.status(400).json({
+            error: "invalid user id"
+        });
   }
 });
 
-app.patch("/api/users/:id", upload.single("image"), function(req, res) {
+app.patch("/api/users/:id", upload.single("image"), async function(req, res) {
 
     if (!ObjectId.isValid(req.params.id)) {
         return res.status(400).json({
@@ -183,9 +209,15 @@ app.patch("/api/users/:id", upload.single("image"), function(req, res) {
     };
     
     if (req.file) {
+        const resizedImage = await sharp(req.file.buffer)
+        .resize(200, 200, {
+            fit: "cover"
+        })
+        .png()
+        .toBuffer();
         updates.image = {
-            data: req.file.buffer,
-            contentType: req.file.mimetype
+            data: resizedImage,
+            contentType: "image/png"
         };
     }
 
@@ -257,6 +289,30 @@ app.get("/api/users/:id/image", function(req, res) {
 });
 
 const PORT = process.env.PORT || 3000;
+
+app.use(function(error, req, res, next) {
+
+    if (error instanceof multer.MulterError) {
+
+        if (error.code === "LIMIT_FILE_SIZE") {
+            return res.status(400).json({
+                error: "Image must be smaller than 500KB"
+            });
+        }
+
+        return res.status(400).json({
+            error: error.message
+        });
+    }
+
+    if (error) {
+        return res.status(400).json({
+            error: error.message
+        });
+    }
+
+    next();
+});
 
 connectToDb((err) => {
   if (!err) {

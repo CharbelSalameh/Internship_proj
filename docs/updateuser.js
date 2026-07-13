@@ -92,8 +92,8 @@ async function updateForm() {
             }
         );
 
-        const updatedUser = await response.json();
-
+        const updatedUser = await response.text();
+        console.log(updatedUser)
         if (!response.ok) {
             throw new Error(
                 updatedUser.error ||
