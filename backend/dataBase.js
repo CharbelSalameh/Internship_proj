@@ -1,12 +1,6 @@
 require("dotenv").config();
 
 const { MongoClient } = require("mongodb");
-const dns=require("dns");
-
-dns.setServers([
-    "1.1.1.1",
-    "8.8.8.8"
-]);
 
 let dbConnection;
 

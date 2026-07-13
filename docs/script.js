@@ -1,26 +1,12 @@
+import { checkForm, fillGenderSelect } from "./utils.js";
+
 const fnameInput = document.getElementById("fname");
 const lnameInput = document.getElementById("lname");
 const btnSave = document.getElementById("saveBtn");
 const genderSelect = document.getElementById("selectgender");
-
-const genders = ["Male", "Female"];
+const imageInput = document.getElementById("imgInput");
 
 let users = [];
-
-function checkForm() {
-    if (fnameInput.value !== "" && lnameInput.value !== "" && genderSelect.value !== "") {
-        btnSave.disabled = false;
-    } else {
-        btnSave.disabled = true;
-    }
-}
-
-genders.forEach(function(item) {
-    const option = document.createElement("option");
-    option.value = item;
-    option.textContent = item;
-    genderSelect.appendChild(option);
-});
 
 async function loadUsers() {
     try {
@@ -43,14 +29,17 @@ async function loadUsers() {
     }
 }
 
-async function clickedSave() {
-    const personalDetails = {
-        firstname: fnameInput.value,
-        lastname: lnameInput.value,
+async function clickedSave(event) {
+
+    event.preventDefault();
+
+    const userDetails = {
+        firstname: fnameInput.value.trim(),
+        lastname: lnameInput.value.trim(),
         gender: genderSelect.value
     };
 
-    const exists = checkUserExistence(personalDetails);
+    const exists = checkUserExistence(userDetails);
 
     if (exists) {
         alert("This user already exists");
@@ -58,20 +47,31 @@ async function clickedSave() {
         return;
     }
 
+    const personalDetails = new FormData();
+
+    personalDetails.append("firstname", fnameInput.value.trim());
+    personalDetails.append("lastname", lnameInput.value.trim());
+    personalDetails.append("gender", genderSelect.value);
+
+    if (imageInput.files.length > 0) {
+        personalDetails.append("image", imageInput.files[0]);
+    }
+
     try {
         const response = await fetch(`${API_BASE_URL}/api/users`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(personalDetails)
+            body: personalDetails
         });
 
-        if (!response.ok) {
-            throw new Error("Failed to save user");
-        }
-
         const savedUser = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                savedUser.message ||
+                savedUser.error ||
+                "Failed to save user"
+            );
+        }
 
         users.push(savedUser);
         createRow(savedUser);
@@ -79,14 +79,16 @@ async function clickedSave() {
 
     } catch (error) {
         console.error("Error saving user:", error.message);
-        alert("Could not save user");
+        alert(error.message);
     }
 }
 
 function checkUserExistence(personalDetails) {
     return users.some(function(user) {
-        return user.firstname === personalDetails.firstname &&
-               user.lastname === personalDetails.lastname &&
+        return user.firstname.toLowerCase() ===
+                    personalDetails.firstname.toLowerCase() &&
+               user.lastname.toLowerCase() ===
+                    personalDetails.lastname.toLowerCase() &&
                user.gender === personalDetails.gender;
     });
 }
@@ -102,7 +104,7 @@ function createTable() {
     table.style.border = "1px solid black";
     table.style.borderCollapse = "collapse";
     table.style.tableLayout = "fixed";
-    table.style.width = "400px";
+    table.style.width = "500px";
 
     const thead = document.createElement("thead");
     const tbody = document.createElement("tbody");
@@ -124,13 +126,18 @@ function createTable() {
     header3.style.border = "1px solid black";
 
     const header4 = document.createElement("th");
-    header4.textContent = "Action";
+    header4.textContent = "Image";
     header4.style.border = "1px solid black";
+
+    const header5 = document.createElement("th");
+    header5.textContent = "Action";
+    header5.style.border = "1px solid black";
 
     row.appendChild(header1);
     row.appendChild(header2);
     row.appendChild(header3);
     row.appendChild(header4);
+    row.appendChild(header5);
 
     thead.appendChild(row);
 
@@ -143,7 +150,10 @@ function createTable() {
 
 function clearTableBody() {
     const tableBody = document.getElementById("tableBody");
-    tableBody.innerHTML = "";
+
+    if (tableBody) {
+        tableBody.innerHTML = "";
+    }
 }
 
 function createRow(details) {
@@ -155,24 +165,64 @@ function createRow(details) {
     const cell2 = createCell(details.lastname);
     const cell3 = createCell(details.gender);
 
+    const cell4 = document.createElement("td");
+
+    cell4.style.border = "1px solid black";
+    cell4.style.textAlign = "center";
+    cell4.style.verticalAlign = "middle";
+
+    if (details.hasImage) {
+        const image = document.createElement("img");
+
+        image.src = `${API_BASE_URL}/api/users/${details._id}/image`;
+        image.width = 60;
+        image.height = 60;
+        image.style.objectFit = "cover";
+        image.style.borderRadius = "5px";
+        image.alt = "User image";
+
+        image.addEventListener("error", function() {
+            cell4.innerHTML = "";
+            cell4.textContent = "No Image";
+        });
+
+        cell4.appendChild(image);
+
+    } else {
+        cell4.textContent = "No Image";
+    }
+
     row.appendChild(cell1);
     row.appendChild(cell2);
     row.appendChild(cell3);
+    row.appendChild(cell4);
 
     const deleteCell = document.createElement("td");
     deleteCell.style.textAlign = "center";
     deleteCell.style.border = "1px solid black";
+    deleteCell.style.verticalAlign = "middle";
 
-    const icon = document.createElement("span");
-    icon.innerHTML = "&#x1F5D1;";
-    icon.style.color = "#FF0000";
-    icon.style.cursor = "pointer";
+    const deleteIcon = document.createElement("span");
+    deleteIcon.innerHTML = "&#x1F5D1;";
+    deleteIcon.style.color = "#FF0000";
+    deleteIcon.style.cursor = "pointer";
+    deleteIcon.style.marginRight = "10px";
 
-    icon.addEventListener("click", function() {
+    const editIcon = document.createElement("span");
+    editIcon.innerHTML = "&#9998;";
+    editIcon.style.color = "#FF0000";
+    editIcon.style.cursor = "pointer";
+
+    deleteIcon.addEventListener("click", function() {
         removeRow(row, details._id);
     });
 
-    deleteCell.appendChild(icon);
+    editIcon.addEventListener("click", function() {
+        goToEditPage(details._id);
+    });
+
+    deleteCell.appendChild(deleteIcon);
+    deleteCell.appendChild(editIcon);
     row.appendChild(deleteCell);
 
     table.appendChild(row);
@@ -186,6 +236,7 @@ function createCell(info) {
     cell.style.width = "120px";
     cell.style.whiteSpace = "normal";
     cell.style.overflowWrap = "break-word";
+    cell.style.verticalAlign = "middle";
 
     return cell;
 }
@@ -212,9 +263,12 @@ function removeRow(row, userId) {
 
     yesBtn.addEventListener("click", async function() {
         try {
-            const response = await fetch(`${API_BASE_URL}/api/users/${userId}`, {
-                method: "DELETE"
-            });
+            const response = await fetch(
+                `${API_BASE_URL}/api/users/${userId}`,
+                {
+                    method: "DELETE"
+                }
+            );
 
             if (!response.ok) {
                 throw new Error("Failed to delete user");
@@ -253,8 +307,15 @@ function resetInput() {
     fnameInput.value = "";
     lnameInput.value = "";
     genderSelect.value = "";
+    imageInput.value = "";
     btnSave.disabled = true;
 }
+
+function goToEditPage(userId) {
+    window.location.href = `updateuser.html?id=${userId}`;
+}
+
+fillGenderSelect();
 
 btnSave.addEventListener("click", clickedSave);
 genderSelect.addEventListener("change", checkForm);

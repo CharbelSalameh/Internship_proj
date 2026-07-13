@@ -1,7 +1,6 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
   "license": "ISC",
   "author": "",
   "type": "commonjs",
@@ -13,7 +12,11 @@
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "dotnet": "^1.1.4",
     "express": "^5.2.1",
-    "mongodb": "^7.5.0"
-  }
+    "mongodb": "^7.5.0",
+    "multer": "^2.2.0"
+  },
+  "keywords": [],
+  "description": ""
 }
