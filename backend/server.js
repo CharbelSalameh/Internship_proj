@@ -100,7 +100,7 @@ app.post("/api/users",upload.single("image"), async function(req, res) {
         if (req.file) {
             resizedImage = await sharp(req.file.buffer)
                 .resize(200, 200, {
-                    fit: "cover"
+                    fit: "contain"
                 })
                 .png()
                 .toBuffer();
@@ -211,7 +211,7 @@ app.patch("/api/users/:id", upload.single("image"), async function(req, res) {
     if (req.file) {
         const resizedImage = await sharp(req.file.buffer)
         .resize(200, 200, {
-            fit: "cover"
+            fit: "contain"
         })
         .png()
         .toBuffer();
