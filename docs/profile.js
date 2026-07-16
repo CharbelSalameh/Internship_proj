@@ -1,4 +1,6 @@
-  const params = new URLSearchParams(window.location.search);
+ import {checkHostName} from "./utils.js";
+
+ const params = new URLSearchParams(window.location.search);
   const nameFromUrl = params.get("name") || "";
 
   fetch(`${API_BASE_URL}/api/profile-data?name=${encodeURIComponent(nameFromUrl)}`)
@@ -10,3 +12,5 @@
       console.error("Error fetching profile name:", err);
       document.getElementById('welcome-message').textContent = "Welcome Guest";
     });
+
+window.addEventListener("load",checkHostName);

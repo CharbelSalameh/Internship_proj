@@ -1,3 +1,5 @@
+import {checkHostName} from "./utils.js";
+
 const COUNTRIES_JSON_URL = "./data/countries.json";
 
 const countriesList = document.createElement("div");
@@ -118,4 +120,5 @@ async function getCountries() {
   }
 }
 
+window.addEventListener("load",checkHostName);
 getCountries();

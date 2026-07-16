@@ -14,8 +14,10 @@
     "dotenv": "^17.4.2",
     "dotnet": "^1.1.4",
     "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.5.0",
     "multer": "^2.2.0",
+    "redis": "^6.1.0",
     "sharp": "^0.35.3"
   },
   "keywords": [],

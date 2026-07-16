@@ -1,4 +1,4 @@
-import { checkForm, fillGenderSelect } from "./utils.js";
+import { checkForm, fillGenderSelect, checkHostName } from "./utils.js";
 
 const fnameInput = document.getElementById("fname");
 const lnameInput = document.getElementById("lname");
@@ -9,8 +9,28 @@ const imageInput = document.getElementById("imgInput");
 let users = [];
 
 async function loadUsers() {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+        window.location.href = "login.html";
+        return;
+    }
+
     try {
-        const response = await fetch(`${API_BASE_URL}/api/users`);
+        const response = await fetch(
+            `${window.API_BASE_URL}/api/users`,
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`
+                }
+            }
+        );
+
+        if (response.status === 401) {
+            localStorage.removeItem("token");
+            window.location.href = "login.html";
+            return;
+        }
 
         if (!response.ok) {
             throw new Error("Failed to load users");
@@ -58,7 +78,7 @@ async function clickedSave(event) {
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/users`, {
+        const response = await fetch(`${window.API_BASE_URL}/api/users`, {
             method: "POST",
             body: personalDetails
         });
@@ -95,43 +115,43 @@ function checkUserExistence(personalDetails) {
 
 function createTable() {
     const tablediv = document.createElement("div");
-    tablediv.className = "container d-flex justify-content-center";
+        tablediv.className = "container d-flex justify-content-center";
 
     const table = document.createElement("table");
-    table.id = "myTable";
-    table.classList.add("table", "table-striped", "table-bordered");
+        table.id = "myTable";
+        table.classList.add("table", "table-striped", "table-bordered");
 
-    table.style.border = "1px solid black";
-    table.style.borderCollapse = "collapse";
-    table.style.tableLayout = "fixed";
-    table.style.width = "500px";
+        table.style.border = "1px solid black";
+        table.style.borderCollapse = "collapse";
+        table.style.tableLayout = "fixed";
+        table.style.width = "500px";
 
     const thead = document.createElement("thead");
     const tbody = document.createElement("tbody");
-    tbody.id = "tableBody";
+        tbody.id = "tableBody";
 
     const row = document.createElement("tr");
 
     const header1 = document.createElement("th");
-    header1.textContent = "First Name";
-    header1.style.border = "1px solid black";
-    header1.style.padding = "5px";
+        header1.textContent = "First Name";
+        header1.style.border = "1px solid black";
+        header1.style.padding = "5px";
 
     const header2 = document.createElement("th");
-    header2.textContent = "Last Name";
-    header2.style.border = "1px solid black";
+        header2.textContent = "Last Name";
+        header2.style.border = "1px solid black";
 
     const header3 = document.createElement("th");
-    header3.textContent = "Gender";
-    header3.style.border = "1px solid black";
+        header3.textContent = "Gender";
+        header3.style.border = "1px solid black";
 
     const header4 = document.createElement("th");
-    header4.textContent = "Image";
-    header4.style.border = "1px solid black";
+        header4.textContent = "Image";
+        header4.style.border = "1px solid black";
 
     const header5 = document.createElement("th");
-    header5.textContent = "Action";
-    header5.style.border = "1px solid black";
+        header5.textContent = "Action";
+        header5.style.border = "1px solid black";
 
     row.appendChild(header1);
     row.appendChild(header2);
@@ -174,10 +194,10 @@ function createRow(details) {
     if (details.hasImage) {
         const image = document.createElement("img");
 
-        image.src = `${API_BASE_URL}/api/users/${details._id}/image`;
+        image.src = `${window.API_BASE_URL}/api/users/${details._id}/image`;
         image.width = 60;
         image.height = 60;
-        image.style.objectFit = "cover";
+        image.style.objectFit = "contain";
         image.style.borderRadius = "5px";
         image.alt = "User image";
 
@@ -264,7 +284,7 @@ function removeRow(row, userId) {
     yesBtn.addEventListener("click", async function() {
         try {
             const response = await fetch(
-                `${API_BASE_URL}/api/users/${userId}`,
+                `${window.API_BASE_URL}/api/users/${userId}`,
                 {
                     method: "DELETE"
                 }
@@ -321,6 +341,6 @@ btnSave.addEventListener("click", clickedSave);
 genderSelect.addEventListener("change", checkForm);
 fnameInput.addEventListener("input", checkForm);
 lnameInput.addEventListener("input", checkForm);
-
+window.addEventListener("load",checkHostName);
 createTable();
 loadUsers();

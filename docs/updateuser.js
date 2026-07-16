@@ -1,4 +1,4 @@
-import { checkForm, fillGenderSelect } from "./utils.js";
+import { checkForm, fillGenderSelect, checkHostName} from "./utils.js";
 
 const fnameInput = document.getElementById("fname");
 const lnameInput = document.getElementById("lname");
@@ -21,7 +21,7 @@ async function getUser() {
 
     try {
         const response = await fetch(
-            `${API_BASE_URL}/api/users/${userId}`
+            `${window.API_BASE_URL}/api/users/${userId}`
         );
 
         const data = await response.json();
@@ -44,7 +44,7 @@ async function getUser() {
             noImageMessage.style.display = "none";
 
             currentImage.src =
-                `${API_BASE_URL}/api/users/${userId}/image`;
+                `${window.API_BASE_URL}/api/users/${userId}/image`;
 
         } else {
             currentImage.style.display = "none";
@@ -85,7 +85,7 @@ async function updateForm() {
 
     try {
         const response = await fetch(
-            `${API_BASE_URL}/api/users/${userId}`,
+            `${window.API_BASE_URL}/api/users/${userId}`,
             {
                 method: "PATCH",
                 body: personalDetails
@@ -135,6 +135,6 @@ fnameInput.addEventListener("input", checkForm);
 lnameInput.addEventListener("input", checkForm);
 genderSelect.addEventListener("change", checkForm);
 btnSave.addEventListener("click", updateForm);
-
+window.addEventListener("load",checkHostName);
 fillGenderSelect();
 getUser();

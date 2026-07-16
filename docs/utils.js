@@ -27,3 +27,15 @@ export function fillGenderSelect() {
         genderSelect.appendChild(option);
     });
 }
+
+export async function checkHostName(){
+ try{  const response = await fetch(`${window.API_BASE_URL}/api/health`);
+    if (!response.ok){
+        throw new Error ("Can't get the backend name")
+    } 
+    const data=await response.json();
+    alert(data.message)}
+    catch(err){
+        console.error(error);
+    }
+}
