@@ -1,12 +1,14 @@
-name: CI and Docker Publish
+name: CI, API Test, and Docker Publish
 
 on:
   push:
     branches:
       - main
+
   pull_request:
     branches:
       - main
+
   workflow_dispatch:
 
 permissions:
@@ -18,15 +20,20 @@ concurrency:
 
 env:
   NODE_VERSION: "22"
+
   BACKEND_IMAGE: charbelsalameh123/internship-backend-image
   FRONTEND_IMAGE: charbelsalameh123/internship-frontend-image
 
+  API_URL: http://localhost:5000
+  FRONTEND_URL: http://localhost:8080
+
 jobs:
-  validate:
-    name: Validate application
+  validate-and-test:
+    name: Validate and test application
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -34,22 +41,31 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
-      - name: Check required backend files
+      - name: Check required files
         shell: bash
         run: |
+          set -e
+
           test -f backend/package.json
           test -f backend/package-lock.json
           test -f backend/server.js
           test -f backend/dataBase.js
           test -f backend/dockerfile
 
+          test -f docs/dockerfile
+
+          test -f docker-compose.yml
+          test -f load-balancer/nginx.conf
+
+          echo "All required files exist."
+
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
 
-      # The current package.json test script intentionally exits with code 1,
-      # so syntax validation is used until real automated tests are added.
       - name: Check backend JavaScript syntax
         working-directory: backend
         run: |
@@ -58,20 +74,300 @@ jobs:
 
       - name: Validate Docker Compose file
         env:
-          JWT_SECRET: github-actions-validation-secret
-        run: docker compose -f docker-compose.yml config --quiet
+          JWT_SECRET: github-actions-compose-validation-secret
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            config \
+            --quiet
 
-  docker:
+
+      - name: Create Docker network and volumes
+        run: |
+          docker network inspect internship-network >/dev/null 2>&1 \
+            || docker network create internship-network
+
+          docker volume inspect internship-mongo-data >/dev/null 2>&1 \
+            || docker volume create internship-mongo-data
+
+          docker volume inspect internship-mongo-config >/dev/null 2>&1 \
+            || docker volume create internship-mongo-config
+
+
+      - name: Start application containers
+        env:
+          JWT_SECRET: github-actions-api-test-secret
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            up \
+            --detach \
+            --build
+
+      - name: Show running containers
+        run: docker compose -f docker-compose.yml ps
+
+
+      - name: Wait for backend API
+        shell: bash
+        run: |
+          set -e
+
+          echo "Waiting for the backend API..."
+
+          for attempt in {1..30}; do
+            echo "Attempt ${attempt}/30"
+
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              "${API_URL}/api/health" >/dev/null; then
+
+              echo "Backend API is ready."
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo "Backend API did not become ready."
+          exit 1
+
+
+      - name: Test health endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          response="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              "${API_URL}/api/health"
+          )"
+
+          echo "Health response:"
+          echo "${response}"
+
+          echo "${response}" |
+            jq -e '
+              .message
+              and
+              (.message | contains("is running"))
+            '
+
+      - name: Test invalid login
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          status_code="$(
+            curl \
+              --silent \
+              --output invalid-login-response.json \
+              --write-out "%{http_code}" \
+              --request POST \
+              --header "Content-Type: application/json" \
+              --data '{
+                "username": "wrong-user",
+                "password": "wrong-password"
+              }' \
+              "${API_URL}/api/connect/token"
+          )"
+
+          echo "Invalid-login status: ${status_code}"
+          cat invalid-login-response.json
+
+          if [ "${status_code}" != "401" ]; then
+            echo "Expected HTTP 401, but received ${status_code}."
+            exit 1
+          fi
+
+      - name: Test valid login
+        id: login
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          response="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --request POST \
+              --header "Content-Type: application/json" \
+              --data '{
+                "username": "admin",
+                "password": "admin"
+              }' \
+              "${API_URL}/api/connect/token"
+          )"
+
+          token="$(echo "${response}" | jq -r '.token')"
+
+          if [ -z "${token}" ] || [ "${token}" = "null" ]; then
+            echo "The login endpoint did not return a token."
+            exit 1
+          fi
+
+          echo "The login endpoint returned a JWT token."
+
+          # Hide the token from GitHub Actions logs.
+          echo "::add-mask::${token}"
+
+          # Make the token available to later steps.
+          echo "token=${token}" >> "${GITHUB_OUTPUT}"
+
+
+      - name: Test protected endpoint without token
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          status_code="$(
+            curl \
+              --silent \
+              --output unauthorized-response.json \
+              --write-out "%{http_code}" \
+              "${API_URL}/api/users"
+          )"
+
+          echo "Unauthorized request status: ${status_code}"
+          cat unauthorized-response.json
+
+          if [ "${status_code}" != "401" ]; then
+            echo "Expected HTTP 401, but received ${status_code}."
+            exit 1
+          fi
+
+      - name: Test protected users endpoint
+        shell: bash
+        env:
+          JWT_TOKEN: ${{ steps.login.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          response="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --header "Authorization: Bearer ${JWT_TOKEN}" \
+              "${API_URL}/api/users"
+          )"
+
+          echo "Users endpoint returned valid JSON."
+
+          echo "${response}" | jq -e 'type == "array"'
+
+      - name: Test profile endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          response="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              "${API_URL}/api/profile-data?name=Charbel"
+          )"
+
+          echo "Profile response:"
+          echo "${response}"
+
+          echo "${response}" |
+            jq -e '.personName == "Charbel"'
+
+      - name: Wait for frontend
+        shell: bash
+        run: |
+          set -e
+
+          echo "Waiting for the frontend..."
+
+          for attempt in {1..20}; do
+            echo "Attempt ${attempt}/20"
+
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              "${FRONTEND_URL}" >/dev/null; then
+
+              echo "Frontend is ready."
+              exit 0
+            fi
+
+            sleep 3
+          done
+
+          echo "Frontend did not become ready."
+          exit 1
+
+      - name: Test frontend response
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          status_code="$(
+            curl \
+              --silent \
+              --output frontend-response.html \
+              --write-out "%{http_code}" \
+              "${FRONTEND_URL}"
+          )"
+
+          echo "Frontend status: ${status_code}"
+
+          if [ "${status_code}" != "200" ]; then
+            echo "Expected frontend HTTP 200."
+            exit 1
+          fi
+
+          test -s frontend-response.html
+
+      - name: Show Docker logs on failure
+        if: failure()
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            ps
+
+          docker compose \
+            -f docker-compose.yml \
+            logs \
+            --no-color
+
+      - name: Stop application containers
+        if: always()
+        env:
+          JWT_SECRET: github-actions-api-test-secret
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            down \
+            --volumes \
+            --remove-orphans
+
+  publish-docker-images:
     name: Build and publish Docker images
     runs-on: ubuntu-latest
-    needs: validate
+
+
+    needs: validate-and-test
 
     steps:
+
       - name: Check out repository
         uses: actions/checkout@v4
 
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
@@ -80,26 +376,34 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build backend image
+
+      - name: Build and publish backend image
         uses: docker/build-push-action@v7
         with:
           context: ./backend
           file: ./backend/dockerfile
+
           push: ${{ github.event_name != 'pull_request' }}
+
           tags: |
             ${{ env.BACKEND_IMAGE }}:latest
             ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
-      - name: Build frontend image
+
+      - name: Build and publish frontend image
         uses: docker/build-push-action@v7
         with:
           context: ./docs
           file: ./docs/dockerfile
+
           push: ${{ github.event_name != 'pull_request' }}
+
           tags: |
             ${{ env.FRONTEND_IMAGE }}:latest
             ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
