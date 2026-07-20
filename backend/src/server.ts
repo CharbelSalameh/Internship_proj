@@ -1,19 +1,34 @@
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const { connectToDb, getDB } = require("./dataBase");
-const { ObjectId } = require("mongodb");
-const path = require("path");
-const multer = require("multer");
-const sharp = require("sharp");
-const os = require("os");
-const redis = require("redis");
-const jwt = require ("jsonwebtoken");
-let db;
+import "dotenv/config";
+import express from "express";
+import cors from "cors";
+import multer from "multer";
+import sharp from "sharp";
+import jwt from "jsonwebtoken";
+import { ObjectId } from "mongodb";
+import { createClient } from "redis";
+import os from "node:os";
+
+import type { NextFunction, Request, Response, RequestHandler } from "express";
+import type { JwtPayload } from "jsonwebtoken";
+import type { Db } from "mongodb";
+import type {
+  UpdateUserBody,
+  UserDocument,
+  UserIdParams
+} from "./types/user.js";
+
+import { connectToDb, getDB } from "./dataBase.js";
+
+let db : Db;
+
+export interface AuthenticatedRequest extends Request {
+  user?: string | JwtPayload;
+}
 
 const app = express();
 
-const redisClient = redis.createClient({
+
+const redisClient = createClient({
   url: process.env.REDIS_URL || "redis://redis:6379"
 });
 
@@ -34,28 +49,34 @@ const upload = multer({
     if (file.mimetype === "image/png") {
       cb(null, true);
     } else {
-      cb(new Error("Only PNG files are allowed"), false);
+      cb(new Error("Only PNG files are allowed"));
     }
   }
 });
+
+const uploadUserImage = upload.single("image") as unknown as RequestHandler<
+  UserIdParams,
+  unknown,
+  UpdateUserBody
+>;
 
 app.use(cors());
 app.use(express.json());
 
 
-async function getUsers() {
+async function getUsers(): Promise<UserDocument[]>  {
   try {
     const cachedUsers = await redisClient.get("users");
 
     if (cachedUsers !== null) {
       console.log("Users loaded from Redis");
-      return JSON.parse(cachedUsers);
+      return JSON.parse(cachedUsers) as UserDocument[];
     }
 
     console.log("Users loaded from MongoDB");
 
     const users = await db
-      .collection("users")
+      .collection<UserDocument>("users")
       .find()
       .sort({ firstname: 1 })
       .toArray();
@@ -84,7 +105,7 @@ app.get("/api/health", function(req, res) {
   });
 });
 
-app.get("/api/users", [verifyTheToken], function(req, res) {
+app.get("/api/users", [verifyTheToken], function(req : Request, res:Response) {
   getUsers()
     .then(users => {
       const usersWithImageInfo = users.map(function(user) {
@@ -255,19 +276,38 @@ app.get("/api/users/:id", function(req, res) {
 
 app.patch(
   "/api/users/:id",
-  upload.single("image"),
-  async function(req, res) {
-    if (!ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({
+ uploadUserImage,
+  async function (
+    req: Request<UserIdParams, unknown, UpdateUserBody>,
+    res: Response
+  ) :Promise<void>{
+    const id = req.params.id;
+
+    if (!id || !ObjectId.isValid(id)) {
+      res.status(400).json({
         error: "invalid user id"
       });
+      return;
     }
 
-    const updates = {
-      firstname: req.body.firstname,
-      lastname: req.body.lastname,
-      gender: req.body.gender
-    };
+    const updates: UpdateUserBody & {
+      image?: {
+        data: Buffer;
+        contentType: string;
+      };
+    } = {};
+
+    if (req.body.firstname !== undefined) {
+      updates.firstname = req.body.firstname;
+    }
+
+    if (req.body.lastname !== undefined) {
+      updates.lastname = req.body.lastname;
+    }
+
+    if (req.body.gender !== undefined) {
+      updates.gender = req.body.gender;
+    }
 
     try {
       if (req.file) {
@@ -284,24 +324,32 @@ app.patch(
         };
       }
 
+      if (Object.keys(updates).length === 0) {
+        res.status(400).json({
+          error: "no update fields were provided"
+        });
+        return;
+      }
+
       const result = await db
-        .collection("users")
-        .findOneAndUpdate(
-          {
-            _id: new ObjectId(req.params.id)
-          },
-          {
-            $set: updates
-          },
-          {
-            returnDocument: "after"
-          }
-        );
+      .collection<UserDocument>("users")
+      .findOneAndUpdate(
+        {
+          _id: new ObjectId(id)
+        },
+        {
+          $set: updates
+        },
+        {
+          returnDocument: "after"
+        }
+      );
 
       if (!result) {
-        return res.status(404).json({
+        res.status(404).json({
           error: "user not found"
         });
+      return;
       }
 
       res.status(200).json({
@@ -309,15 +357,16 @@ app.patch(
         firstname: result.firstname,
         lastname: result.lastname,
         gender: result.gender,
-        hasImage: result.image !== null
+        hasImage: Boolean(result.image?.data)
       });
-
+      return;
     } catch (error) {
-      console.error(error);
+      console.error("Error updating user:", error);
 
       res.status(500).json({
         error: "could not update the document"
       });
+      return;
     }
   }
 );
@@ -363,7 +412,7 @@ app.get("/api/users/:id/image", function(req, res) {
 });
 
 
-function verifyTheToken(req, res, next){
+function verifyTheToken(req : AuthenticatedRequest, res:Response, next: NextFunction){
     const headerAuthorization = req.headers.authorization;
     if (!headerAuthorization){
         return res.status(401).json({
@@ -372,16 +421,18 @@ function verifyTheToken(req, res, next){
     console.log(headerAuthorization);
 
     const token= headerAuthorization.split(" ")[1];
-     
-    if (!token) {
-    return res.status(401).json({
-      error: "Token is required"
+    const jwtSecret = process.env.JWT_SECRET;
+
+    if (!token || !jwtSecret) {
+    res.status(401).json({
+      error: "Token or JWT secret is missing"
     });
+    return;
     }
     try {
         const decoded = jwt.verify(
            token,
-           process.env.JWT_SECRET
+           jwtSecret
         );
 
     req.user = decoded;
@@ -406,15 +457,23 @@ app.post("/api/connect/token",(req,res)=>{
       error: "Invalid username or password"
     });
   }
-
+  
     const payload = {
       userId: "123",
       username: username
     };
 
+    const jwtSecret = process.env.JWT_SECRET;
+
+    if (!jwtSecret) {
+    res.status(500).json({
+      error: "Token or JWT secret is missing"
+    });
+    return;
+    }
     const token = jwt.sign(
       payload,
-      process.env.JWT_SECRET,
+      jwtSecret,
       { expiresIn: "1h"}
     );
 
@@ -431,9 +490,9 @@ app.post("/api/connect/token",(req,res)=>{
   }
 })
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
-app.use(function(error, req, res, next) {
+app.use(function(error:unknown, req :Request, res: Response, next:NextFunction) {
   if (error instanceof multer.MulterError) {
     if (error.code === "LIMIT_FILE_SIZE") {
       return res.status(400).json({
@@ -446,7 +505,7 @@ app.use(function(error, req, res, next) {
     });
   }
 
-  if (error) {
+  if (error instanceof Error) {
     return res.status(400).json({
       error: error.message
     });
